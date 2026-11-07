@@ -104,6 +104,12 @@ function readConfig(repo) {
   if (config.outputDir !== undefined && (typeof config.outputDir !== 'string' || !config.outputDir.trim())) {
     throw new Error('outputDir in ' + configName + ' must be a non-empty path relative to the repository.');
   }
+  if (config.style !== undefined && typeof config.style !== 'string') {
+    throw new Error('style in ' + configName + ' must be a string.');
+  }
+  if (config.styleReference !== undefined && (typeof config.styleReference !== 'string' || !config.styleReference.trim())) {
+    throw new Error('styleReference in ' + configName + ' must be a non-empty path relative to the repository.');
+  }
   return config;
 }
 
@@ -146,9 +152,23 @@ function startSession(args) {
   const configPath = join(repo, configName);
   const config = readConfig(repo);
   const output = resolveOutput(repo);
+  // The approved UI kit image: passed first in reference_images for every screen.
+  let styleReference = null;
+  let styleReferenceProblem;
+  if (config.styleReference) {
+    const file = resolve(repo, config.styleReference);
+    if (!inside(dirname(repo), file)) styleReferenceProblem = 'styleReference points outside the project folder.';
+    else if (!existsSync(file) || !statSync(file).isFile()) styleReferenceProblem = 'styleReference file is missing: ' + file;
+    else styleReference = file;
+  }
   return {
-    next_step: 'Do not report back yet. In this same turn, inspect the project (workflow step 1), then ask round 1 with AskUserQuestion' +
-      (existsSync(configPath) ? ' (skip the save-folder question: the config sets it).' : ', including where to save references.'),
+    next_step: 'Do not report back yet. In this same turn, inspect the project (workflow step 1), then ask round 1 with AskUserQuestion. ' +
+      'Skip the questions the config already answers: ' +
+      (config.style ? 'style is set' : 'style is not set') + ', ' +
+      (config.outputDir ? 'save folder is set' : 'save folder is not set') + ', ' +
+      (styleReference ? 'common reference is set (pass it first in reference_images).' : 'no common reference yet (offer it first).') +
+      (styleReferenceProblem ? ' Tell the user: ' + styleReferenceProblem : ''),
+    style_reference: styleReference,
     repository: repo,
     project_folder: dirname(repo),
     config_file: configPath,

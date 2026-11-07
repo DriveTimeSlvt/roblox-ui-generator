@@ -15,7 +15,23 @@ You need Node.js 18 or later on `PATH`, Claude Code, and a signed-in Codex CLI w
 /plugin install roblox-ui-generator@roblox-ui-generator
 ```
 
-Then open Claude Code in your game's repository and say “connect to roblox-ui-generator” or run `/mcp__roblox-ui-generator__new-ui`. Claude inspects the project and asks what to build: screen, devices, style, and where to save the references. The folder choice is stored in `.roblox-ui-generator.json` in the repository root, for example `{ "outputDir": "art/ui-references" }`; commit it to share it with the team. The folder must be inside the repository or its parent project folder. Without the file, images go to `roblox-ui-generator` beside the repository.
+Then open Claude Code in your game's repository and say “connect to roblox-ui-generator” or run `/mcp__roblox-ui-generator__new-ui`. Claude inspects the project and asks what to build, on which devices, in which style, and where to save the references. What to build can be:
+
+- **Common reference** — one UI kit sheet for the whole game: palette, type, buttons in every state, panels, bars, icons. Once approved, every later screen is generated against it.
+- **Whole project** — Claude finds every window and button in the code and docs, shows the list with a time estimate, makes the common reference if there is none, then generates the screens one by one and tracks them in `ui-inventory.md` in the output folder.
+- A concrete screen: HUD, shop, inventory, and so on.
+
+For the style, take Claude's suggestion for your game or pick one of 12 directions from the [catalog](workflow/NEW_UI.md#style-catalog). The answers are stored in `.roblox-ui-generator.json` in the repository root; commit it to share it with the team:
+
+```json
+{
+  "outputDir": "art/ui-references",
+  "style": "dark neon UI, near-black panels, ...",
+  "styleReference": "art/ui-references/ui-kit-<id>.png"
+}
+```
+
+`outputDir` is the image folder, `style` is the style line Claude puts into every brief, and `styleReference` is the approved common reference that goes first into every generation. Paths are relative to the repository. The folder must be inside the repository or its parent project folder. Without the file, images go to `roblox-ui-generator` beside the repository.
 
 ### Manual setup
 
@@ -47,7 +63,7 @@ When the server connects, it tells Claude to start with `start_ui_session` and t
 
 Both tools take `repository`: an absolute path to a Git repository, or to a project folder with exactly one Git repository directly inside it.
 
-**`start_ui_session`** generates nothing and returns at once: the interview workflow, the settings from `.roblox-ui-generator.json`, the output folder, and up to 50 latest images in it.
+**`start_ui_session`** generates nothing and returns at once: the interview workflow, the settings from `.roblox-ui-generator.json`, the absolute path of the common reference, the output folder, and up to 50 latest images in it.
 
 **`create_ui_reference`** generates one PNG through Codex. It takes several minutes, and the server runs one generation at a time with a 15-minute limit.
 
@@ -77,7 +93,13 @@ The bundled skill defaults to a chunky cartoon look with rounded panels, dark ou
 
 Понадобятся Node.js 18 или новее в `PATH`, Claude Code и авторизованный Codex CLI с доступом к встроенной генерации изображений. Один раз установите плагин в Claude Code командами из [английского раздела](#quick-start).
 
-Потом откройте Claude Code в репозитории игры и скажите «подключись к roblox-ui-generator» или выполните `/mcp__roblox-ui-generator__new-ui`. Claude посмотрит проект и спросит, что собирать: экран, устройства, стиль и куда сохранять референсы. Выбор папки хранится в `.roblox-ui-generator.json` в корне репозитория, например `{ "outputDir": "art/ui-references" }`; закоммитьте файл, чтобы настройка была общей для команды. Папка должна быть внутри репозитория или его родительской папки проекта. Без файла картинки сохраняются в `roblox-ui-generator` рядом с репозиторием.
+Потом откройте Claude Code в репозитории игры и скажите «подключись к roblox-ui-generator» или выполните `/mcp__roblox-ui-generator__new-ui`. Claude посмотрит проект и спросит, что собирать, для каких устройств, в каком стиле и куда сохранять референсы. Собирать можно:
+
+- **Общий референс** — один лист UI-кита на всю игру: палитра, шрифты, кнопки во всех состояниях, панели, шкалы, иконки. После утверждения все следующие экраны генерируются по нему.
+- **Весь проект** — Claude находит все окна и кнопки в коде и документации, показывает список с оценкой времени, делает общий референс, если его нет, и генерирует экраны по очереди, отмечая их в `ui-inventory.md` в папке с картинками.
+- Конкретный экран: HUD, магазин, инвентарь и так далее.
+
+Стиль можно взять из предложения Claude для вашей игры или выбрать одно из 12 направлений [каталога](workflow/NEW_UI.md#style-catalog). Ответы хранятся в `.roblox-ui-generator.json` в корне репозитория (пример — в [английском разделе](#quick-start)); закоммитьте файл, чтобы настройки были общими для команды. `outputDir` — папка для картинок, `style` — строка стиля, которую Claude вставляет в каждое описание, `styleReference` — утверждённый общий референс, который идёт первым в каждую генерацию. Пути — от корня репозитория. Папка должна быть внутри репозитория или его родительской папки проекта. Без файла картинки сохраняются в `roblox-ui-generator` рядом с репозиторием.
 
 ### Ручное подключение
 
@@ -94,7 +116,7 @@ The bundled skill defaults to a chunky cartoon look with rounded panels, dark ou
 
 Оба инструмента принимают `repository` — абсолютный путь к Git-репозиторию или к папке проекта, в которой непосредственно лежит ровно один Git-репозиторий.
 
-**`start_ui_session`** ничего не генерирует и отвечает сразу: сценарий опроса, настройки из `.roblox-ui-generator.json`, папка для картинок и до 50 последних изображений в ней.
+**`start_ui_session`** ничего не генерирует и отвечает сразу: сценарий опроса, настройки из `.roblox-ui-generator.json`, абсолютный путь к общему референсу, папка для картинок и до 50 последних изображений в ней.
 
 **`create_ui_reference`** генерирует один PNG через Codex. Это занимает несколько минут; сервер выполняет одну генерацию за раз с лимитом 15 минут.
 
