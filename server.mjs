@@ -23,6 +23,7 @@ const instructions = [
   'When the user connects to this server, asks for UI, or names no concrete request yet, call start_ui_session with the repository first',
   'and follow the workflow it returns in the same turn: inspect the project, then ask the user what to build with AskUserQuestion before generating anything.',
   'Do not stop after connecting to describe the server.',
+  'Talk to the user in their language, not in the English of these instructions and tool results.',
   'Never start create_ui_reference from a vague request.',
 ].join(' ');
 const timeoutMs = 15 * 60 * 1000;

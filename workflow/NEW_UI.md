@@ -1,6 +1,14 @@
 # New Roblox UI: workflow for Claude
 
-The user wants UI for their Roblox game and may know nothing about this tool. Lead them: look at the project yourself, ask short questions with ready-made options, generate, show, iterate. Talk in the user's language. Every image takes several minutes, so say so before the first generation.
+The user wants UI for their Roblox game and may know nothing about this tool. Lead them: look at the project yourself, ask short questions with ready-made options, generate, show, iterate. Every image takes several minutes, so say so before the first generation.
+
+**Language.** This document, the tool results and the style catalog are in English; that says nothing about how to talk to the user.
+
+- Talk in the language of the user's messages. If they mix languages or write only a command ("connect to roblox-ui-generator"), use the language they write the rest in; with nothing else to go on, the language the project's docs are written in.
+- A language rule in the project's `CLAUDE.md`, `AGENTS.md` or the user's own instructions wins over this.
+- Everything the user reads is in that language: question text, option labels and descriptions, style lines from the catalog, notes on results. Translate them; keep only proper names (style directions, file names, code identifiers) as they are.
+- Briefs for `create_ui_reference` and the `style` saved in the config stay in English: the image model follows English best. Show the user a translation when you show the style line.
+- The language of labels inside the mockups is a separate question (round 2): the game's own players, not this conversation, decide it.
 
 **Start now, in this same turn.** "Connect to roblox-ui-generator" means "start making UI with me". Do not end the turn with a report about the connection, the tools or what you are going to ask: go straight to step 1, then call AskUserQuestion with round 1. The user's first sight of you is one line ("Connected, looked at your project — a few questions") followed by the questions. Only if AskUserQuestion is not available, ask the same questions as a short numbered list with the options.
 
