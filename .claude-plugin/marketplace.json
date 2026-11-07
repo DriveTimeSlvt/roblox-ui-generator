@@ -1,0 +1,11 @@
+{
+  "name": "roblox-ui-generator",
+  "owner": { "name": "DriveTimeSlvt" },
+  "plugins": [
+    {
+      "name": "roblox-ui-generator",
+      "source": "./",
+      "description": "Roblox UI mockups and assets generated through Codex. Claude inspects your project and asks what to build."
+    }
+  ]
+}

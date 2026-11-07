@@ -1,0 +1,14 @@
+{
+  "name": "roblox-ui-generator",
+  "version": "1.1.0",
+  "description": "Roblox UI mockups and assets generated through Codex. Claude inspects your project and asks what to build.",
+  "author": { "name": "DriveTimeSlvt" },
+  "repository": "https://github.com/DriveTimeSlvt/roblox-ui-generator",
+  "mcpServers": {
+    "roblox-ui-generator": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server.mjs"],
+      "timeout": 960000
+    }
+  }
+}

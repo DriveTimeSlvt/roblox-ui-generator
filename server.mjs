@@ -11,26 +11,52 @@ import { fileURLToPath } from 'node:url';
 
 const serverDir = dirname(fileURLToPath(import.meta.url));
 const skill = readFileSync(join(serverDir, '.agents/skills/roblox-ui-generator/SKILL.md'), 'utf8');
-const experiencesPath = process.env.ROBLOX_UI_GENERATOR_EXPERIENCES_PATH || join(serverDir, '../../Experiences');
+const workflow = readFileSync(join(serverDir, 'workflow/NEW_UI.md'), 'utf8');
+// Optional: restricts generation to projects under this folder. Unset — any local Git repository.
+const experiencesPath = process.env.ROBLOX_UI_GENERATOR_EXPERIENCES_PATH;
 const codexHome = resolve(process.env.CODEX_HOME || join(homedir(), '.codex'));
 const outputFolder = 'roblox-ui-generator';
+// Per-project settings in the repository root, e.g. { "outputDir": "art/ui-references" }.
+const configName = '.roblox-ui-generator.json';
+const instructions = [
+  'roblox-ui-generator makes Roblox UI mockups and assets through Codex. Each image takes several minutes.',
+  'When the user connects to this server, asks for UI, or names no concrete request yet, call start_ui_session with the repository first',
+  'and follow the workflow it returns in the same turn: inspect the project, then ask the user what to build with AskUserQuestion before generating anything.',
+  'Do not stop after connecting to describe the server.',
+  'Never start create_ui_reference from a vague request.',
+].join(' ');
 const timeoutMs = 15 * 60 * 1000;
 const uuid = '[\\da-f]{8}(?:-[\\da-f]{4}){3}-[\\da-f]{12}';
 const threadIdPattern = new RegExp('^' + uuid + '$', 'i');
 const pngNamePattern = new RegExp('^exec-' + uuid + '\\.png$', 'i');
+const repositoryProperty = {
+  type: 'string', minLength: 1,
+  description: 'Absolute path to the Git repository, or to a project folder with exactly one Git repository directly inside it.',
+};
+const startTool = {
+  name: 'start_ui_session',
+  description: 'Call first in every UI session. Returns the step-by-step workflow for interviewing the user, the project settings from ' + configName + ' and the existing references. Fast, generates nothing.',
+  inputSchema: {
+    type: 'object',
+    properties: { repository: repositoryProperty },
+    required: ['repository'],
+    additionalProperties: false,
+  },
+};
 const tool = {
   name: 'create_ui_reference',
-  description: 'Use Codex and the roblox-ui-generator skill to generate one Roblox UI PNG. The file is saved in roblox-ui-generator beside the selected Git repository. Generation may take several minutes.',
+  description: 'Use Codex and the roblox-ui-generator skill to generate one Roblox UI PNG. Saved to output_dir, else to outputDir from ' + configName + ', else to roblox-ui-generator beside the repository. Generation may take several minutes.',
   inputSchema: {
     type: 'object',
     properties: {
-      repository: { type: 'string', minLength: 1, description: 'Absolute path to the project folder or its Git repository under ROBLOX_UI_GENERATOR_EXPERIENCES_PATH.' },
+      repository: repositoryProperty,
+      output_dir: { type: 'string', minLength: 1, description: 'Optional absolute folder for the PNG, inside the repository or its parent project folder. Overrides the project setting.' },
       prompt: { type: 'string', minLength: 1, maxLength: 8000, description: 'Describe the game, layout, visual style, labels, target device or aspect ratio. For an isolated asset, specify whether you need transparency.' },
       name: { type: 'string', maxLength: 80, description: 'Optional short filename label.' },
       kind: { type: 'string', enum: ['screen', 'asset'], default: 'screen', description: 'Full interface mockup or isolated UI artwork.' },
       reference_images: {
         type: 'array', maxItems: 3, uniqueItems: true, items: { type: 'string', minLength: 1 },
-        description: 'Absolute paths to existing PNG, JPG or WebP references inside the selected repository or its roblox-ui-generator folder.',
+        description: 'Absolute paths to existing PNG, JPG or WebP references inside the selected repository or its parent project folder.',
       },
     },
     required: ['repository', 'prompt'],
@@ -45,24 +71,94 @@ function inside(root, target) {
 
 function resolveRepository(path) {
   if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('Provide an absolute repository path.');
-  const root = realpathSync(experiencesPath);
   const selected = realpathSync(path);
-  const parts = relative(root, selected).split(sep);
-  if (!inside(root, selected) || parts.length > 2 || !statSync(selected).isDirectory()) {
-    throw new Error('Select a project or its Git repository under ' + root + '.');
-  }
-  if (parts.length === 2 && existsSync(join(selected, '.git'))) return selected;
-  if (parts.length === 1) {
-    const candidates = readdirSync(selected, { withFileTypes: true })
-      .filter(entry => entry.isDirectory() && existsSync(join(selected, entry.name, '.git')));
-    if (candidates.length === 1) {
-      const repo = realpathSync(join(selected, candidates[0].name));
-      if (relative(selected, repo) !== candidates[0].name) throw new Error('The repository must be inside its project.');
-      return repo;
+  if (!statSync(selected).isDirectory()) throw new Error('The repository path must be a directory.');
+  if (experiencesPath) {
+    const root = realpathSync(experiencesPath);
+    if (!inside(root, selected) || relative(root, selected).split(sep).length > 2) {
+      throw new Error('Select a project or its Git repository under ' + root + '.');
     }
+  }
+  if (existsSync(join(selected, '.git'))) return selected;
+  const candidates = readdirSync(selected, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && existsSync(join(selected, entry.name, '.git')));
+  if (candidates.length === 1) {
+    const repo = realpathSync(join(selected, candidates[0].name));
+    if (relative(selected, repo) !== candidates[0].name) throw new Error('The repository must be inside its project.');
+    return repo;
+  }
+  if (candidates.length > 1) {
     throw new Error('The project has ' + candidates.length + ' nested Git repositories. Specify the repository directly.');
   }
-  throw new Error('The selected directory does not contain .git.');
+  throw new Error('The selected directory is not a Git repository and contains none.');
+}
+
+function readConfig(repo) {
+  const file = join(repo, configName);
+  if (!existsSync(file)) return {};
+  let config;
+  try { config = JSON.parse(readFileSync(file, 'utf8')); } catch {
+    throw new Error(configName + ' is not valid JSON.');
+  }
+  if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error(configName + ' must contain a JSON object.');
+  if (config.outputDir !== undefined && (typeof config.outputDir !== 'string' || !config.outputDir.trim())) {
+    throw new Error('outputDir in ' + configName + ' must be a non-empty path relative to the repository.');
+  }
+  return config;
+}
+
+// The PNG folder: explicit argument, then the project setting, then roblox-ui-generator beside the repository.
+// It must stay inside the project folder (the repository's parent) and must not be a symbolic link.
+function resolveOutput(repo, explicit) {
+  const project = dirname(repo);
+  let output;
+  if (explicit !== undefined) {
+    if (typeof explicit !== 'string' || !isAbsolute(explicit)) throw new Error('output_dir must be an absolute path.');
+    output = resolve(explicit);
+  } else {
+    const { outputDir } = readConfig(repo);
+    output = outputDir ? resolve(repo, outputDir) : join(project, outputFolder);
+  }
+  if (!inside(project, output)) {
+    throw new Error('The output folder must be inside ' + project + ' (the repository or next to it).');
+  }
+  if (existsSync(output) && (lstatSync(output).isSymbolicLink() || !lstatSync(output).isDirectory() ||
+      !inside(realpathSync(project), realpathSync(output)))) {
+    throw new Error('The output folder must be a real directory inside the project.');
+  }
+  return output;
+}
+
+function listReferences(output) {
+  if (!existsSync(output)) return [];
+  return readdirSync(output, { withFileTypes: true })
+    .filter(entry => entry.isFile() && ['.png', '.jpg', '.jpeg', '.webp'].includes(extname(entry.name).toLowerCase()))
+    .map(entry => {
+      const path = join(output, entry.name);
+      return { path, modified: statSync(path).mtime.toISOString() };
+    })
+    .sort((a, b) => b.modified.localeCompare(a.modified))
+    .slice(0, 50);
+}
+
+function startSession(args) {
+  const repo = resolveRepository(args?.repository);
+  const configPath = join(repo, configName);
+  const config = readConfig(repo);
+  const output = resolveOutput(repo);
+  return {
+    next_step: 'Do not report back yet. In this same turn, inspect the project (workflow step 1), then ask round 1 with AskUserQuestion' +
+      (existsSync(configPath) ? ' (skip the save-folder question: the config sets it).' : ', including where to save references.'),
+    repository: repo,
+    project_folder: dirname(repo),
+    config_file: configPath,
+    config_exists: existsSync(configPath),
+    config,
+    output_dir: output,
+    output_dir_is_default: !config.outputDir,
+    existing_references: listReferences(output),
+    workflow,
+  };
 }
 
 function codexExecutable() {
@@ -121,7 +217,7 @@ function runCodex(brief, references, signal) {
   });
 }
 
-function publishPng(threadId, lastMessage, project, name) {
+function publishPng(threadId, lastMessage, project, output, name) {
   const generatedPath = join(codexHome, 'generated_images');
   if (!existsSync(join(generatedPath, threadId))) {
     throw new Error('Codex did not generate a PNG in this thread. ' + lastMessage.slice(0, 500));
@@ -139,10 +235,9 @@ function publishPng(threadId, lastMessage, project, name) {
       png.readUInt32BE(16) === 0 || png.readUInt32BE(20) === 0) {
     throw new Error('Codex output is not a complete PNG.');
   }
-  const output = join(project, outputFolder);
   mkdirSync(output, { recursive: true });
-  if (relative(project, realpathSync(output)) !== outputFolder || lstatSync(output).isSymbolicLink()) {
-    throw new Error(outputFolder + ' must be a real directory beside the repository.');
+  if (lstatSync(output).isSymbolicLink() || !inside(realpathSync(project), realpathSync(output))) {
+    throw new Error('The output folder must be a real directory inside the project.');
   }
   const label = name.normalize('NFKC').replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'ui';
   const filename = label + '-' + randomUUID() + '.png';
@@ -158,7 +253,7 @@ function publishPng(threadId, lastMessage, project, name) {
 }
 
 async function generate(args, signal) {
-  const { repository, prompt, name = '', kind = 'screen', reference_images: images = [] } = args ?? {};
+  const { repository, output_dir: outputDir, prompt, name = '', kind = 'screen', reference_images: images = [] } = args ?? {};
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 8000 ||
       typeof name !== 'string' || name.length > 80 || !['screen', 'asset'].includes(kind) ||
       !Array.isArray(images) || images.length > 3 || new Set(images).size !== images.length) {
@@ -166,22 +261,20 @@ async function generate(args, signal) {
   }
   const repo = resolveRepository(repository);
   const project = dirname(repo);
-  const output = join(project, outputFolder);
-  if (existsSync(output) && (relative(project, realpathSync(output)) !== outputFolder || !lstatSync(output).isDirectory())) {
-    throw new Error(outputFolder + ' must be a real directory beside the repository.');
-  }
+  const output = resolveOutput(repo, outputDir);
+  const projectReal = realpathSync(project);
   const references = images.map(path => {
     if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('Reference images require absolute paths.');
     const file = realpathSync(path);
-    if ((!inside(repo, file) && !inside(output, file)) || !statSync(file).isFile() ||
+    if (!inside(projectReal, file) || !statSync(file).isFile() ||
         !['.png', '.jpg', '.jpeg', '.webp'].includes(extname(file).toLowerCase())) {
-      throw new Error('References must be PNG, JPG or WebP files in the selected repository or its ' + outputFolder + ' folder.');
+      throw new Error('References must be PNG, JPG or WebP files inside ' + project + '.');
     }
     return file;
   });
   const { threadId, lastMessage } = await runCodex({ kind, prompt: prompt.trim() }, references, signal);
   signal.throwIfAborted();
-  return publishPng(threadId, lastMessage, project, name);
+  return publishPng(threadId, lastMessage, project, output, name);
 }
 
 const versions = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
@@ -196,10 +289,22 @@ async function handle({ id, method, params }) {
   if (method === 'initialize') {
     send({ id, result: {
       protocolVersion: versions.includes(params?.protocolVersion) ? params.protocolVersion : versions[0],
-      capabilities: { tools: {} }, serverInfo: { name: 'roblox-ui-generator', version: '1.0.0' },
+      capabilities: { tools: {}, prompts: {} }, serverInfo: { name: 'roblox-ui-generator', version: '1.1.0' },
+      instructions,
     } });
   } else if (method === 'ping' || method === 'tools/list') {
-    send({ id, result: method === 'ping' ? {} : { tools: [tool] } });
+    send({ id, result: method === 'ping' ? {} : { tools: [startTool, tool] } });
+  } else if (method === 'prompts/list') {
+    send({ id, result: { prompts: [{ name: 'new-ui', description: 'Interview me and generate Roblox UI for this project.' }] } });
+  } else if (method === 'prompts/get' && params?.name === 'new-ui') {
+    send({ id, result: { messages: [{ role: 'user', content: { type: 'text',
+      text: 'I want to make Roblox UI for the project open in this session. Call start_ui_session for it and follow the workflow.' } }] } });
+  } else if (method === 'tools/call' && params?.name === startTool.name) {
+    try {
+      send({ id, result: { content: [{ type: 'text', text: JSON.stringify(startSession(params.arguments)) }] } });
+    } catch (error) {
+      send({ id, result: { isError: true, content: [{ type: 'text', text: error.message }] } });
+    }
   } else if (method === 'tools/call' && params?.name === tool.name) {
     if (active) {
       send({ id, result: { isError: true, content: [{ type: 'text', text: 'A UI generation is already running in this session. Retry after it finishes.' }] } });
